@@ -1,0 +1,1 @@
+// ErrorResponse shape

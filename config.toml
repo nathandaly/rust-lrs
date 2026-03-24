@@ -1,0 +1,15 @@
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[database]
+url = "postgres://lrs_owner:password@localhost:5432/lrs"
+max_connections = 20
+
+[auth]
+oauth_enabled = true
+allow_empty_http_auth = false
+
+[hooks]
+enabled = true
+hmac_secret = "change-me-in-production"

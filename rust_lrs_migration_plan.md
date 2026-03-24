@@ -61,74 +61,74 @@ This Rust LRS is a ground-up rewrite of the [ADL LRS](https://github.com/adlnet/
 **Core xAPI Processing Pipeline**
 
 
-| Original Django File              | Lines | What It Does                                                                                                                                                                                                                      | Rust Replacement                                                                                                                                                                                                |
-| --------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lrs/views.py`                    | 254   | God-dispatcher `handle_request` maps URL names to validate/process function pairs. Catches all exceptions and maps to HTTP status codes.                                                                                          | `api/handlers/*.rs` (one file per endpoint) + `api/middleware/error_handler.rs`                                                                                                                                 |
-| `lrs/utils/req_parse.py`          | ~570  | Parses Authorization header (Basic/OAuth), extracts body/params, handles multipart/mixed attachments, builds internal request dict.                                                                                               | `api/middleware/auth.rs` + `api/extractors/auth.rs` + `api/extractors/query.rs`                                                                                                                                 |
-| `lrs/utils/req_validate.py`       | 920   | 20+ functions mixing auth checks (`@auth` decorator), parameter validation, `StatementValidator` calls, OAuth scope enforcement, and ETag checks for every endpoint.                                                              | `application/*_service.rs` (business rules) + `domain/validation/*.rs` (xAPI rules) + `api/middleware/auth.rs` (auth/scope)                                                                                     |
-| `lrs/utils/req_process.py`        | 552   | Database reads/writes for all endpoints: statement insertion via `StatementManager`, document CRUD via state/profile managers, complex GET queries with filtering, pagination (cache-based "more" tokens), and response building. | `application/*_service.rs` (orchestration) + `infrastructure/db/*_repo.rs` (SQL)                                                                                                                                |
-| `lrs/utils/StatementValidator.py` | 987   | Single class validates the entire xAPI spec: actor, verb, object, result, context, attachments, interaction types, IRIs, UUIDs, language maps, durations. All in one file with deeply nested method calls.                        | `domain/validation/` directory -- one file per concern: `actor_validator.rs`, `verb_validator.rs`, `object_validator.rs`, `result_validator.rs`, `context_validator.rs`, `attachment_validator.rs`, `common.rs` |
-| `lrs/utils/authorization.py`      | 270   | `@auth` decorator, `http_auth_helper` (Basic auth), `oauth_helper` (OAuth token validation, group agent creation), `validate_oauth_scope`, `validate_oauth_for_documents`.                                                        | `application/auth_service.rs` + `api/middleware/auth.rs`                                                                                                                                                        |
+| Original Django File                      | Lines | What It Does                                                                                                                                                                                                                      | Rust Replacement                                                                                                                                                                                                |
+| ----------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `./ADL_LRS/lrs/views.py`                  | 254   | God-dispatcher `handle_request` maps URL names to validate/process function pairs. Catches all exceptions and maps to HTTP status codes.                                                                                          | `api/handlers/*.rs` (one file per endpoint) + `api/middleware/error_handler.rs`                                                                                                                                 |
+| `./ADL_LRS/lrs/utils/req_parse.py`        | ~570  | Parses Authorization header (Basic/OAuth), extracts body/params, handles multipart/mixed attachments, builds internal request dict.                                                                                               | `api/middleware/auth.rs` + `api/extractors/auth.rs` + `api/extractors/query.rs`                                                                                                                                 |
+| `./ADL_LRS/lrs/utils/req_validate.py`     | 920   | 20+ functions mixing auth checks (`@auth` decorator), parameter validation, `StatementValidator` calls, OAuth scope enforcement, and ETag checks for every endpoint.                                                              | `application/*_service.rs` (business rules) + `domain/validation/*.rs` (xAPI rules) + `api/middleware/auth.rs` (auth/scope)                                                                                     |
+| `./ADL_LRS/lrs/utils/req_process.py`      | 552   | Database reads/writes for all endpoints: statement insertion via `StatementManager`, document CRUD via state/profile managers, complex GET queries with filtering, pagination (cache-based "more" tokens), and response building. | `application/*_service.rs` (orchestration) + `infrastructure/db/*_repo.rs` (SQL)                                                                                                                                |
+| `./ADL_LRS/lrs/utils/StatementValidator.py` | 987   | Single class validates the entire xAPI spec: actor, verb, object, result, context, attachments, interaction types, IRIs, UUIDs, language maps, durations. All in one file with deeply nested method calls.                        | `domain/validation/` directory -- one file per concern: `actor_validator.rs`, `verb_validator.rs`, `object_validator.rs`, `result_validator.rs`, `context_validator.rs`, `attachment_validator.rs`, `common.rs` |
+| `./ADL_LRS/lrs/utils/authorization.py`    | 270   | `@auth` decorator, `http_auth_helper` (Basic auth), `oauth_helper` (OAuth token validation, group agent creation), `validate_oauth_scope`, `validate_oauth_for_documents`.                                                        | `application/auth_service.rs` + `api/middleware/auth.rs`                                                                                                                                                        |
 
 
 **Models and Database Managers**
 
 
-| Original Django File                     | Lines | What It Does                                                                                                                                                                                                                                                                                                            | Rust Replacement                                                                                                  |
-| ---------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `lrs/models.py`                          | 865   | Django ORM models for `Verb`, `Agent` (with `AgentManager`), `Activity`, `SubStatement`, `Statement`, `StatementAttachment`, `ActivityState`, `ActivityProfile`, `AgentProfile`. Mixes schema definition with serialization (`to_dict`, `object_return`), business logic (`retrieve_or_create`), and language handling. | `domain/*.rs` (pure structs/enums) + `infrastructure/db/*_repo.rs` (SQL) + `api/dto/*.rs` (serialization)         |
-| `lrs/managers/StatementManager.py`       | ~350  | `populate` pipeline: `build_verb`, `build_statement_object`, `build_context`, `build_result`, `build_model_object`, `build_attachments`. Flattens nested xAPI JSON into Django model fields. Also `SubStatementManager`.                                                                                                | `application/statement_service.rs` (pipeline orchestration) + `infrastructure/db/statement_repo.rs` (persistence) |
-| `lrs/managers/ActivityManager.py`        | ~150  | `get_or_create` activity, merges language maps in `definition` when `define` permission is set, manages `authority` on activities.                                                                                                                                                                                      | `application/activity_service.rs` + `infrastructure/db/activity_repo.rs`                                          |
-| `lrs/managers/ActivityStateManager.py`   | ~200  | GET/PUT/POST/DELETE for activity state documents. POST does JSON merge of existing + new. ETag-based concurrency.                                                                                                                                                                                                       | `application/document_service.rs` + `infrastructure/db/document_repo.rs`                                          |
-| `lrs/managers/ActivityProfileManager.py` | ~180  | Same pattern as state but for activity profiles. JSON merge on POST, full replace on PUT.                                                                                                                                                                                                                               | `application/document_service.rs` + `infrastructure/db/document_repo.rs`                                          |
-| `lrs/managers/AgentProfileManager.py`    | ~180  | Same pattern for agent profiles.                                                                                                                                                                                                                                                                                        | `application/document_service.rs` + `infrastructure/db/document_repo.rs`                                          |
+| Original Django File                             | Lines | What It Does                                                                                                                                                                                                                                                                                                            | Rust Replacement                                                                                                  |
+| ------------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `./ADL_LRS/lrs/models.py`                        | 865   | Django ORM models for `Verb`, `Agent` (with `AgentManager`), `Activity`, `SubStatement`, `Statement`, `StatementAttachment`, `ActivityState`, `ActivityProfile`, `AgentProfile`. Mixes schema definition with serialization (`to_dict`, `object_return`), business logic (`retrieve_or_create`), and language handling. | `domain/*.rs` (pure structs/enums) + `infrastructure/db/*_repo.rs` (SQL) + `api/dto/*.rs` (serialization)         |
+| `./ADL_LRS/lrs/managers/StatementManager.py`     | ~350  | `populate` pipeline: `build_verb`, `build_statement_object`, `build_context`, `build_result`, `build_model_object`, `build_attachments`. Flattens nested xAPI JSON into Django model fields. Also `SubStatementManager`.                                                                                                | `application/statement_service.rs` (pipeline orchestration) + `infrastructure/db/statement_repo.rs` (persistence) |
+| `./ADL_LRS/lrs/managers/ActivityManager.py`      | ~150  | `get_or_create` activity, merges language maps in `definition` when `define` permission is set, manages `authority` on activities.                                                                                                                                                                                      | `application/activity_service.rs` + `infrastructure/db/activity_repo.rs`                                          |
+| `./ADL_LRS/lrs/managers/ActivityStateManager.py` | ~200  | GET/PUT/POST/DELETE for activity state documents. POST does JSON merge of existing + new. ETag-based concurrency.                                                                                                                                                                                                       | `application/document_service.rs` + `infrastructure/db/document_repo.rs`                                          |
+| `./ADL_LRS/lrs/managers/ActivityProfileManager.py` | ~180  | Same pattern as state but for activity profiles. JSON merge on POST, full replace on PUT.                                                                                                                                                                                                                               | `application/document_service.rs` + `infrastructure/db/document_repo.rs`                                          |
+| `./ADL_LRS/lrs/managers/AgentProfileManager.py`  | ~180  | Same pattern for agent profiles.                                                                                                                                                                                                                                                                                        | `application/document_service.rs` + `infrastructure/db/document_repo.rs`                                          |
 
 
 **Authentication and OAuth**
 
 
-| Original Django File       | Lines | What It Does                                                                                                                                | Rust Replacement                                             |
-| -------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `oauth_provider/models.py` | ~120  | Django models: `Nonce`, `Consumer` (key/secret/status), `Token` (request/access, scopes, verifier). `TokenManager`.                         | `infrastructure/db/auth_repo.rs` + domain types in `domain/` |
-| `oauth_provider/views.py`  | 280   | OAuth 1.0a handshake: `request_token` (initiate), `user_authorization` (approve/deny), `access_token` (exchange), plus xAuth flow.          | `api/handlers/oauth.rs` (if you add OAuth handshake)         |
-| `oauth_provider/store.py`  | ~200  | `Store` class: `lookup_consumer`, `lookup_token`, `lookup_nonce`, `create_request_token`, `create_access_token`, `authorize_request_token`. | `infrastructure/db/auth_repo.rs`                             |
-| `oauth_provider/utils.py`  | ~150  | `CheckOauth` class: verifies OAuth signatures, timestamps, nonces.                                                                          | `application/auth_service.rs`                                |
+| Original Django File                   | Lines | What It Does                                                                                                                                | Rust Replacement                                             |
+| -------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `./ADL_LRS/oauth_provider/models.py`   | ~120  | Django models: `Nonce`, `Consumer` (key/secret/status), `Token` (request/access, scopes, verifier). `TokenManager`.                         | `infrastructure/db/auth_repo.rs` + domain types in `domain/` |
+| `./ADL_LRS/oauth_provider/views.py`    | 280   | OAuth 1.0a handshake: `request_token` (initiate), `user_authorization` (approve/deny), `access_token` (exchange), plus xAuth flow.          | `api/handlers/oauth.rs` (if you add OAuth handshake)         |
+| `./ADL_LRS/oauth_provider/store.py`    | ~200  | `Store` class: `lookup_consumer`, `lookup_token`, `lookup_nonce`, `create_request_token`, `create_access_token`, `authorize_request_token`. | `infrastructure/db/auth_repo.rs`                             |
+| `./ADL_LRS/oauth_provider/utils.py`    | ~150  | `CheckOauth` class: verifies OAuth signatures, timestamps, nonces.                                                                          | `application/auth_service.rs`                                |
 
 
 **Background Tasks and Webhooks**
 
 
-| Original Django File | Lines | What It Does                                                                                                                                                                                                                                                                        | Rust Replacement                                                                                                                             |
-| -------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lrs/tasks.py`       | 249   | Celery tasks: `check_activity_metadata` (HTTP fetch activity definitions, update canonical data), `check_statement_hooks` (filter statements against Hook configs, POST to webhook endpoints with optional HMAC `X-LRS-Signature`). Also helper functions for parsing hook filters. | `infrastructure/background/metadata_fetcher.rs` + `infrastructure/background/webhook_sender.rs` + `infrastructure/background/task_runner.rs` |
+| Original Django File       | Lines | What It Does                                                                                                                                                                                                                                                                        | Rust Replacement                                                                                                                             |
+| -------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `./ADL_LRS/lrs/tasks.py`   | 249   | Celery tasks: `check_activity_metadata` (HTTP fetch activity definitions, update canonical data), `check_statement_hooks` (filter statements against Hook configs, POST to webhook endpoints with optional HMAC `X-LRS-Signature`). Also helper functions for parsing hook filters. | `infrastructure/background/metadata_fetcher.rs` + `infrastructure/background/webhook_sender.rs` + `infrastructure/background/task_runner.rs` |
 
 
 **Configuration and Infrastructure**
 
 
-| Original Django File    | Lines | What It Does                                                                                                                                                               | Rust Replacement                                                |
-| ----------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `adl_lrs/settings.py`   | ~200  | Django settings: DB config from `settings.ini`, Celery/AMQP, caches, middleware stack, installed apps, media paths, logging.                                               | `config.rs` + `config.toml`                                     |
-| `settings.ini.example`  | ~40   | INI config: database, email, recaptcha, debug, auth flags, hooks, AMQP, Redis.                                                                                             | `config.toml`                                                   |
-| `adl_lrs/models.py`     | ~60   | `Hook` model: UUID PK, name, config (endpoint), filters (JSON), user FK.                                                                                                   | `domain/hook.rs` + `infrastructure/db/hook_repo.rs`             |
-| `adl_lrs/views.py`      | 446   | Web UI views: home, register, login, "me" dashboard, hook management, statement validator form, app status. Not part of xAPI spec.                                         | Out of scope for initial Rust LRS (admin UI can be added later) |
-| `adl_lrs/middleware.py` | 149   | `ErrorHandlingMiddleware`: catches exceptions, logs with error_id, returns JSON for xAPI paths or HTML for web paths. Defined but not wired into `MIDDLEWARE` in settings. | `api/middleware/error_handler.rs`                               |
+| Original Django File                | Lines | What It Does                                                                                                                                                               | Rust Replacement                                                |
+| ----------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `./ADL_LRS/adl_lrs/settings.py`     | ~200  | Django settings: DB config from `settings.ini`, Celery/AMQP, caches, middleware stack, installed apps, media paths, logging.                                               | `config.rs` + `config.toml`                                     |
+| `./ADL_LRS/settings.ini.example`    | ~40   | INI config: database, email, recaptcha, debug, auth flags, hooks, AMQP, Redis.                                                                                             | `config.toml`                                                   |
+| `./ADL_LRS/adl_lrs/models.py`       | ~60   | `Hook` model: UUID PK, name, config (endpoint), filters (JSON), user FK.                                                                                                   | `domain/hook.rs` + `infrastructure/db/hook_repo.rs`             |
+| `./ADL_LRS/adl_lrs/views.py`        | 446   | Web UI views: home, register, login, "me" dashboard, hook management, statement validator form, app status. Not part of xAPI spec.                                         | Out of scope for initial Rust LRS (admin UI can be added later) |
+| `./ADL_LRS/adl_lrs/middleware.py`   | 149   | `ErrorHandlingMiddleware`: catches exceptions, logs with error_id, returns JSON for xAPI paths or HTML for web paths. Defined but not wired into `MIDDLEWARE` in settings. | `api/middleware/error_handler.rs`                               |
 
 
 **SQL Migrations (Custom, outside Django)**
 
 
-| SQL File                                                                 | What It Does                                                                                                                                | Rust Equivalent                                     |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| `sql/01_adl_lrs_registration_migration_fixed.sql`                        | Creates `registrations`, `registration_submissions`, `registration_modules` tables + materialized view + trigger on `lrs_statement` insert. | Later migration: `migrations/011_registrations.sql` |
-| `sql/02_pathways_resources_migration.sql`                                | Creates `pathways`, `resources`, `resource_submissions`, `resource_modules`, `pathway_registrations` + materialized views.                  | Later migration: `migrations/012_pathways.sql`      |
-| `sql/03_fix_resource_sync.sql`                                           | Default pathway, selective EasyGenerator trigger.                                                                                           | Folded into 012.                                    |
-| `sql/04_platform_aware_sync_functions.sql`                               | `detect_lms_platform` function, unified routing trigger, rewritten sync functions.                                                          | Later migration: `migrations/013_platform_sync.sql` |
-| `sql/05_fix_ambiguous_column.sql` through `sql/07_fix_table_columns.sql` | Bug fixes for column names, DISTINCT/ORDER BY, and INSERT alignment.                                                                        | Fixes incorporated into 011-013 from the start.     |
-| `docker/clear.sql`                                                       | Truncation script respecting FK order.                                                                                                      | Utility script, not a migration.                    |
+| SQL File                                                                         | What It Does                                                                                                                                | Rust Equivalent                                     |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `./ADL_LRS/sql/01_adl_lrs_registration_migration_fixed.sql`                      | Creates `registrations`, `registration_submissions`, `registration_modules` tables + materialized view + trigger on `lrs_statement` insert. | Later migration: `migrations/011_registrations.sql` |
+| `./ADL_LRS/sql/02_pathways_resources_migration.sql`                              | Creates `pathways`, `resources`, `resource_submissions`, `resource_modules`, `pathway_registrations` + materialized views.                  | Later migration: `migrations/012_pathways.sql`      |
+| `./ADL_LRS/sql/03_fix_resource_sync.sql`                                         | Default pathway, selective EasyGenerator trigger.                                                                                           | Folded into 012.                                    |
+| `./ADL_LRS/sql/04_platform_aware_sync_functions.sql`                             | `detect_lms_platform` function, unified routing trigger, rewritten sync functions.                                                          | Later migration: `migrations/013_platform_sync.sql` |
+| `./ADL_LRS/sql/05_fix_ambiguous_column.sql` through `sql/07_fix_table_columns.sql` | Bug fixes for column names, DISTINCT/ORDER BY, and INSERT alignment.                                                                        | Fixes incorporated into 011-013 from the start.     |
+| `./ADL_LRS/docker/clear.sql`                                                     | Truncation script respecting FK order.                                                                                                      | Utility script, not a migration.                    |
 
 
-### Key xAPI Validation Rules (from `StatementValidator.py`)
+### Key xAPI Validation Rules (from `./ADL_LRS/lrs/utils/StatementValidator.py`)
 
 These rules must be faithfully reimplemented in `domain/validation/`:
 
@@ -140,7 +140,7 @@ These rules must be faithfully reimplemented in `domain/validation/`:
 - **Context**: `registration` UUID. `revision`/`platform` only when object is Activity. `contextActivities` keys: `parent`, `grouping`, `category`, `other` (each a list of Activities). `contextAgents`/`contextGroups` with `relevantTypes` IRI lists (xAPI 2.0).
 - **Attachments**: Required `usageType` IRI, `display` language map, `contentType`, `length` int, `sha2` (64 hex lowercase). Optional `fileUrl` IRI.
 
-### API Endpoint Catalog (from `lrs/urls.py` + `lrs/views.py`)
+### API Endpoint Catalog (from `./ADL_LRS/lrs/urls.py` + `./ADL_LRS/lrs/views.py`)
 
 All mounted at `/xapi/` (case-insensitive: `/XAPI/`, `/xAPI/` also accepted):
 
@@ -159,7 +159,7 @@ All mounted at `/xapi/` (case-insensitive: `/XAPI/`, `/xAPI/` also accepted):
 | GET, HEAD                    | `/agents`               | Required | `agents_get`          | `agents_get`          | `handlers/agents.rs`               |
 
 
-### OAuth Handshake Endpoints (from `oauth_provider/urls.py`)
+### OAuth Handshake Endpoints (from `./ADL_LRS/oauth_provider/urls.py`)
 
 
 | Method    | Path                    | Auth                                       | Description               |
@@ -169,9 +169,9 @@ All mounted at `/xapi/` (case-insensitive: `/XAPI/`, `/xAPI/` also accepted):
 | POST      | `/xapi/OAuth/token`     | OAuth verifier or xAuth credentials        | Exchange for access token |
 
 
-### Authorization Scopes (from `oauth_provider/consts.py` + `authorization.py`)
+### Authorization Scopes (from `./ADL_LRS/oauth_provider/consts.py` + `./ADL_LRS/lrs/utils/authorization.py`)
 
-Scopes control what OAuth tokens can do: `statements/write`, `statements/read`, `statements/read/mine`, `state`, `define`, `profile`, `all`. The `@auth` decorator in `req_validate.py` calls `validate_oauth_scope` to enforce method+endpoint vs token scope. The `define` flag controls whether the client can create/update Activity definitions.
+Scopes control what OAuth tokens can do: `statements/write`, `statements/read`, `statements/read/mine`, `state`, `define`, `profile`, `all`. The `@auth` decorator in `./ADL_LRS/lrs/utils/req_validate.py` calls `validate_oauth_scope` to enforce method+endpoint vs token scope. The `define` flag controls whether the client can create/update Activity definitions.
 
 ---
 
@@ -179,13 +179,13 @@ Scopes control what OAuth tokens can do: `statements/write`, `statements/read`, 
 
 Before designing the Rust version, here is what makes the Django codebase hard to maintain:
 
-- `**lrs/views.py`** -- A single `handle_request` function acts as a god-dispatcher, routing all xAPI endpoints through nested dicts of validators and processors. No separation between HTTP concerns and business logic.
-- `**lrs/utils/req_validate.py`** (920 lines) -- Mixes authentication, authorization, parameter extraction, and xAPI validation into one monolithic module with 20+ functions.
-- `**lrs/utils/req_process.py`** (552 lines) -- Mixes database queries, serialization, caching, pagination, and response building.
-- `**lrs/utils/StatementValidator.py`** (987 lines) -- One class validates the entire xAPI spec with deeply nested method calls and no separation of validation concerns (actor vs verb vs result vs context).
-- `**lrs/models.py`** (865 lines) -- Django models mix persistence schema with serialization (`to_dict`, `object_return`), business logic (`AgentManager.retrieve_or_create`), and language handling.
-- `**lrs/managers/StatementManager.py`** -- Mixes ORM operations with business rules for building/flattening statement structures.
-- **Auth is scattered** across `req_parse.py`, `authorization.py`, OAuth provider views, and decorators with no single responsibility boundary.
+- `**./ADL_LRS/lrs/views.py`** -- A single `handle_request` function acts as a god-dispatcher, routing all xAPI endpoints through nested dicts of validators and processors. No separation between HTTP concerns and business logic.
+- `**./ADL_LRS/lrs/utils/req_validate.py`** (920 lines) -- Mixes authentication, authorization, parameter extraction, and xAPI validation into one monolithic module with 20+ functions.
+- `**./ADL_LRS/lrs/utils/req_process.py`** (552 lines) -- Mixes database queries, serialization, caching, pagination, and response building.
+- `**./ADL_LRS/lrs/utils/StatementValidator.py`** (987 lines) -- One class validates the entire xAPI spec with deeply nested method calls and no separation of validation concerns (actor vs verb vs result vs context).
+- `**./ADL_LRS/lrs/models.py`** (865 lines) -- Django models mix persistence schema with serialization (`to_dict`, `object_return`), business logic (`AgentManager.retrieve_or_create`), and language handling.
+- `**./ADL_LRS/lrs/managers/StatementManager.py`** -- Mixes ORM operations with business rules for building/flattening statement structures.
+- **Auth is scattered** across `./ADL_LRS/lrs/utils/req_parse.py`, `./ADL_LRS/lrs/utils/authorization.py`, OAuth provider views, and decorators with no single responsibility boundary.
 
 ## Rust Architecture: Clean / Hexagonal Layers
 
@@ -359,7 +359,7 @@ config.toml                      -- Runtime config (replaces settings.ini)
 
 ## Database Schema (Postgres, via sqlx migrations)
 
-Key tables mapped from [lrs/models.py](lrs/models.py):
+Key tables mapped from `./ADL_LRS/lrs/models.py`:
 
 - `**verbs**` -- `id SERIAL PK`, `verb_id TEXT UNIQUE NOT NULL`, `canonical_data JSONB`
 - `**agents**` -- `id SERIAL PK`, `object_type TEXT`, `name TEXT`, `mbox TEXT UNIQUE`, `mbox_sha1sum TEXT UNIQUE`, `openid TEXT UNIQUE`, `oauth_identifier TEXT UNIQUE`, `account_home_page TEXT`, `account_name TEXT`, `user_id INT FK`, `UNIQUE(account_home_page, account_name)`
@@ -487,7 +487,7 @@ The existing Postgres data can be preserved. Write sqlx migrations that either:
 - Create fresh tables with the new schema (recommended for a clean start), or
 - Add views/adapters over the existing Django-created tables if you need to run both systems during transition.
 
-The custom SQL from [sql/](sql/) (registrations, pathways, resources) can be ported as later migrations once the core LRS is working.
+The custom SQL from `./ADL_LRS/sql/` (registrations, pathways, resources) can be ported as later migrations once the core LRS is working.
 
 ## Performance Advantages Over Python
 

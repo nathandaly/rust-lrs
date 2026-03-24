@@ -1,0 +1,1 @@
+// GET /xapi/activities

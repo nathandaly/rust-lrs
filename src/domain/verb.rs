@@ -1,0 +1,1 @@
+// Verb domain type

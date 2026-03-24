@@ -1,0 +1,1 @@
+// Validate top-level statement
