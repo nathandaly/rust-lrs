@@ -2,12 +2,5 @@
 <project version="4">
   <component name="SqlDialectMappings">
     <file url="file://$PROJECT_DIR$/ADL_LRS/docker/clear.sql" dialect="GenericSQL" />
-    <file url="file://$PROJECT_DIR$/ADL_LRS/sql/01_adl_lrs_registration_migration_fixed.sql" dialect="GenericSQL" />
-    <file url="file://$PROJECT_DIR$/ADL_LRS/sql/02_pathways_resources_migration.sql" dialect="GenericSQL" />
-    <file url="file://$PROJECT_DIR$/ADL_LRS/sql/03_fix_resource_sync.sql" dialect="GenericSQL" />
-    <file url="file://$PROJECT_DIR$/ADL_LRS/sql/04_platform_aware_sync_functions.sql" dialect="GenericSQL" />
-    <file url="file://$PROJECT_DIR$/ADL_LRS/sql/05_fix_ambiguous_column.sql" dialect="GenericSQL" />
-    <file url="file://$PROJECT_DIR$/ADL_LRS/sql/06_fix_distinct_orderby.sql" dialect="GenericSQL" />
-    <file url="file://$PROJECT_DIR$/ADL_LRS/sql/07_fix_table_columns.sql" dialect="GenericSQL" />
   </component>
 </project>
